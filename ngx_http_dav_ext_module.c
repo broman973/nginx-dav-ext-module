@@ -209,6 +209,51 @@ static void ngx_http_dav_ext_end_xml_elt(void *user_data, const XML_Char *name)
 #define NGX_HTTP_DAV_EXT_COPY    0x01
 #define NGX_HTTP_DAV_EXT_ESCAPE  0x02
 
+uintptr_t
+ngx_http_dav_ext_escape_html(u_char *dst, u_char *src, size_t size)
+{
+    u_char      ch;
+	ngx_uint_t  len;
+
+	if (dst == NULL) {
+
+		len = 0;
+
+		while (size) {
+			switch (*src++) {
+
+			case ' ':
+				len += sizeof("%20") - 2;
+				break;
+
+			default:
+				break;
+			}
+			size--;
+		}
+
+		return (uintptr_t) len;
+	}
+
+	while (size) {
+		ch = *src++;
+
+		switch (ch) {
+
+		case ' ':
+			*dst++ = '%'; *dst++ = '2'; *dst++ = '0'; 
+			break;
+
+		default:
+			*dst++ = ch;
+			break;
+		}
+		size--;
+	}
+
+	return (uintptr_t) dst;
+}
+
 static void
 ngx_http_dav_ext_output(ngx_http_request_t *r, ngx_chain_t **ll,
 	ngx_int_t flags, u_char *data, ngx_uint_t len) 
@@ -222,8 +267,15 @@ ngx_http_dav_ext_output(ngx_http_request_t *r, ngx_chain_t **ll,
 
 	if (flags & NGX_HTTP_DAV_EXT_ESCAPE) {
 
-		b = ngx_create_temp_buf(r->pool, len + ngx_escape_html(NULL, data, len));
-		b->last = (u_char*)ngx_escape_html(b->pos, data, len);
+		len_int = len + ngx_escape_html(NULL, data, len);
+		b_int = ngx_create_temp_buf(r->pool, len_int);
+		b_int->last = (u_char*)ngx_escape_html(b_int->pos, data, len);
+
+		len = len_int + ngx_http_dav_ext_escape_html(NULL, b_int->pos, len_int);
+		b = ngx_create_temp_buf(r->pool, len);
+		b->last = (u_char*)ngx_http_dav_ext_escape_html(b->pos, b_int->pos, len_int);
+
+		ngx_pfree(r->pool, b_int);
 
 	} else if (flags & NGX_HTTP_DAV_EXT_COPY) {
 
@@ -299,7 +351,7 @@ ngx_http_dav_ext_send_propfind_atts(ngx_http_request_t *r,
 	u_char        buf[256];
 	ngx_str_t     name;
 
-	if (stat(path, &st)) {
+	if (stat(path, &st) == -1) {
 
 		ngx_log_error(NGX_LOG_ALERT, r->connection->log, ngx_errno,
 				"dav_ext stat failed on '%s'", path);
@@ -328,16 +380,9 @@ ngx_http_dav_ext_send_propfind_atts(ngx_http_request_t *r,
 						"<D:displayname>"
 			);
 
-		if (uri->len) {
-
-			for(name.data = uri->data + uri->len;
-				name.data >= uri->data + 1 && name.data[-1] != '/'; 
-				--name.data);
-
-			name.len = uri->data + uri->len - name.data;
-
-			NGX_HTTP_DAV_EXT_OUTES(&name);
-		}
+		name.data =(u_char *)strrchr(path, '/') + 1;
+		name.len = strlen((char *)name.data);
+		NGX_HTTP_DAV_EXT_OUTES(&name);
 		
 		NGX_HTTP_DAV_EXT_OUTL(
 						"</D:displayname>\n"
@@ -351,24 +396,37 @@ ngx_http_dav_ext_send_propfind_atts(ngx_http_request_t *r,
 	}
 
 	if (props & NGX_HTTP_DAV_EXT_PROP_getcontentlength) {
-		NGX_HTTP_DAV_EXT_OUTCB(buf, ngx_snprintf(buf, sizeof(buf), 
+		if (S_ISREG(st.st_mode)) {
+			NGX_HTTP_DAV_EXT_OUTCB(buf, ngx_snprintf(buf, sizeof(buf),
 						"<D:getcontentlength>"
 							"%O"
 						"</D:getcontentlength>\n", 
 
-			st.st_size) - buf);
+				st.st_size) - buf);
+		}
 	}
 	
 	if (props & NGX_HTTP_DAV_EXT_PROP_getcontenttype) {
-		NGX_HTTP_DAV_EXT_OUTL(
+		if (st.st_mode & S_IFDIR) {
+			NGX_HTTP_DAV_EXT_OUTL(
+						"<D:getcontenttype>"
+							"httpd/unix-directory"
+						"</D:getcontenttype>\n"
+			);
+		} else {
+			/* TODO: detect content type of files */
+			NGX_HTTP_DAV_EXT_OUTL(
 						"<D:getcontenttype/>\n"
 			);
+		}
 	}
 
 	if (props & NGX_HTTP_DAV_EXT_PROP_getetag) {
-		NGX_HTTP_DAV_EXT_OUTL(
-						"<D:getetag/>\n"
-			);
+		NGX_HTTP_DAV_EXT_OUTCB(buf, strftime((char*)buf, sizeof(buf), 
+						"<D:getetag>"
+							"%a, %d %b %Y %T GMT"
+						"</D:getetag>\n", 
+ 			&stm));
 	}
 
 	if (props & NGX_HTTP_DAV_EXT_PROP_getlastmodified) {
@@ -694,6 +752,9 @@ ngx_http_dav_ext_propfind_handler(ngx_http_request_t *r)
 		r->headers_out.status = 207;
 
 		ngx_str_set(&r->headers_out.status_line, "207 Multi-Status");
+
+		/* Add application/xml header required by RFC 4918. */
+		ngx_str_set(&r->headers_out.content_type, "application/xml");
 
 		ngx_http_send_header(r);
 
