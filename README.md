@@ -6,7 +6,10 @@ this module for missing methods:
 ```
 ./configure --with-http_dav_module --add-module=<path-to-this-module>
 ```
-
+The module can also be built dynamically:
+```
+./configure --with-http_dav_module --add-dynamic-module=/path/to/this-module
+```
 ### Build requirements: libexpat-dev (aka expat-devel)
 
 ### Example config
