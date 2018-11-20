@@ -4,7 +4,7 @@ For full WebDAV support in NGINX you need to turn on standard NGINX
 WebDAV module (providing partial WebDAV implementation) as well as
 this module for missing methods:
 ```
-./configure --with-http_dav_module --add-module=<path-to-this-module>
+./configure --with-http_dav_module --add-module=/path/to/this-module
 ```
 The module can also be built dynamically:
 ```
