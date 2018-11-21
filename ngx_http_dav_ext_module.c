@@ -259,7 +259,8 @@ ngx_http_dav_ext_output(ngx_http_request_t *r, ngx_chain_t **ll,
 	ngx_int_t flags, u_char *data, ngx_uint_t len) 
 {
 	ngx_chain_t *cl;
-	ngx_buf_t   *b;
+    ngx_uint_t  len_int;
+    ngx_buf_t   *b, *b_int /* internal buffer */;
 
 	if (!len) {
 		return; 
@@ -651,9 +652,9 @@ ngx_http_dav_ext_send_propfind(ngx_http_request_t *r)
 
 		/* treat infinite depth as 1 for performance reasons */
 
-		if ((dir = opendir((char*)path.data))) {
+		if (((dir=opendir((char*)path.data)) != NULL)) {
 
-			while((de = readdir(dir))) {
+			while(((de=readdir(dir)) != NULL)) {
 
 				if (!strcmp(de->d_name, ".")
 					|| !strcmp(de->d_name, ".."))
@@ -707,7 +708,7 @@ ngx_http_dav_ext_propfind_handler(ngx_http_request_t *r)
 	ngx_chain_t             *c;
 	ngx_buf_t               *b;
 	XML_Parser              parser;
-	ngx_uint_t              status;
+	ngx_int_t              status;
 	ngx_http_dav_ext_ctx_t *ctx;
 
 	ctx = ngx_http_get_module_ctx(r, ngx_http_dav_ext_module);
